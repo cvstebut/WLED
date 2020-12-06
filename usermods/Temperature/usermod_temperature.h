@@ -21,6 +21,17 @@
 #define USERMOD_DALLASTEMPERATURE_FIRST_MEASUREMENT_AT 20000 
 #endif
 
+// resolution of measurement in bits (9 - 12)
+#ifndef USERMOD_DALLASTEMPERATURE_RESOLUTION_BITS
+#define USERMOD_DALLASTEMPERATURE_RESOLUTION_BITS 9
+#endif
+
+// temperature conversion time (depends on resolution)
+#ifndef USERMOD_DALLASTEMPERATURE_CONVERSION_TIME_MS
+#define USERMOD_DALLASTEMPERATURE_CONVERSION_TIME_MS 94
+#endif
+
+
 OneWire oneWire(TEMPERATURE_PIN);
 DallasTemperature sensor(&oneWire);
 
@@ -81,12 +92,16 @@ class UsermodTemperature : public Usermod {
 
       if (!disabled) {
         DEBUG_PRINTLN("Dallas Temperature found");
+        Serial.print("Dallas temperature sensor found with ID ");
+        printAddress(sensorDeviceAddress);
+        Serial.println("");
         // set the resolution for this specific device
-        sensor.setResolution(sensorDeviceAddress, 9, true);
+        sensor.setResolution(sensorDeviceAddress, USERMOD_DALLASTEMPERATURE_RESOLUTION_BITS, true);
         // do not block waiting for reading
         sensor.setWaitForConversion(false); 
       } else {
         DEBUG_PRINTLN("Dallas Temperature not found");
+        Serial.print("No Dallas temperature sensor found");
       }
     }
 
@@ -114,7 +129,7 @@ class UsermodTemperature : public Usermod {
       }
 
       // we were waiting for a conversion to complete, have we waited log enough?
-      if (now - lastTemperaturesRequest >= 94 /* 93.75ms per the datasheet */)
+      if (now - lastTemperaturesRequest >= USERMOD_DALLASTEMPERATURE_CONVERSION_TIME_MS /* 93.75ms per the datasheet */)
       {
         getTemperature();
  
@@ -170,5 +185,15 @@ class UsermodTemperature : public Usermod {
     uint16_t getId()
     {
       return USERMOD_ID_TEMPERATURE;
+    }
+
+    // function to print a device address
+    void printAddress(DeviceAddress deviceAddress)
+    {
+      for (uint8_t i = 0; i < 8; i++)
+      {
+        if (deviceAddress[i] < 16) Serial.print("0");
+        Serial.print(deviceAddress[i], HEX);
+      }
     }
 };
