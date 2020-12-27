@@ -18,6 +18,13 @@
 #include "../usermods/buzzer/usermod_v2_buzzer.h"
 #endif
 
+#ifdef USERMOD_BME280MQTT
+#include "../usermods/bme280_mqtt/usermod_bme280mqtt.h"
+#endif
+
+#ifdef USERMOD_MPR121MQTT
+#include "../usermods/mpr121_mqtt/usermod_mpr121mqtt.h"
+#endif
 void registerUsermods()
 {
   /*
@@ -32,5 +39,11 @@ void registerUsermods()
   //usermods.add(new UsermodRenameMe());
   #ifdef USERMOD_BUZZER
   usermods.add(new BuzzerUsermod());
+  #endif
+  #ifdef USERMOD_BME280MQTT  
+  usermods.add(new Bme280MqttUsermod());
+  #endif
+  #ifdef USERMOD_MPR121MQTT  
+  usermods.add(new Mpr121MqttUsermod());
   #endif
 }
