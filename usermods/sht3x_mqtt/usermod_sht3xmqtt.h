@@ -1,9 +1,15 @@
 #pragma once
+
 #include "wled.h"
 #include <Wire.h>
 #include "SHTSensor.h"
+#include "LedControl.h"
+#include "LedControl_HW_SPI.h"
+#include <iomanip>
+#include <sstream>
 
 SHTSensor sht;
+LedControl_HW_SPI lc = LedControl_HW_SPI();
 
 #ifdef USERMOD_BME280MQTT
 #else
@@ -11,7 +17,7 @@ SHTSensor sht;
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
-#else //ESP8266 boards
+#else                     //ESP8266 boards
 uint8_t SCL_PIN = 5;
 uint8_t SDA_PIN = 4;
 // uint8_t RST_PIN = 16; // Uncoment for Heltec WiFi-Kit-8
@@ -43,8 +49,10 @@ private:
   unsigned long lastTime = 0;
   // BME280 sensor timer
   long sensorTimer = millis();
-  long lastMeasure = 0;
-  long reportMqttPeriod = 10000; // publish measurement every reportMqttPeriod milli seconds
+  long lastMqttReport = 0;
+  long lastMeasurement = 0;
+  long reportMqttPeriod = 20000; // publish measurement every reportMqttPeriod milli seconds
+  long measurePeriod = 1000;     // get measurement every measurePeriod milli seconds
   String sensorType;
 
 public:
@@ -59,6 +67,16 @@ public:
   void setup()
   {
     Serial.println("Hello from usermod sht3xmqtt!");
+    lc.begin(5);
+    /*
+    The MAX72XX is in power-saving mode on startup,
+    we have to do a wakeup call
+    */
+    lc.shutdown(0, false);
+    /* Set the brightness to a medium values */
+    lc.setIntensity(0, 2);
+    /* and clear the display */
+    lc.clearDisplay(0);
 
     Wire.begin(SDA_PIN, SCL_PIN);
 
@@ -73,6 +91,36 @@ public:
       sensorConnected = true;
       sensorType = "sht35";
     }
+  }
+
+  void writeQuad(int group, float value)
+  {
+    // convert value to 4 char string with one decimal
+    int digit = group * 4 - 1;
+    int groupLength = 5;
+
+    // round to 1 decimal place
+    value = round(value * 10.0) / 10.0;
+
+    std::ostringstream strStream;
+    std::string stringValue = "-----";
+    // handle overflow by setting value to "-----"
+    if (value >= 1000.0)
+    {
+      stringValue = "-----";
+    }
+    else
+    {
+      strStream << std::setw(groupLength) << std::setfill(' ') << std::fixed << std::setprecision(1) << value;
+      stringValue = strStream.str();
+      strStream.str("");
+    }
+    //    Serial.println(stringValue.c_str());
+
+    lc.setChar(0, digit--, stringValue[groupLength - 5], false);
+    lc.setChar(0, digit--, stringValue[groupLength - 4], false);
+    lc.setChar(0, digit--, stringValue[groupLength - 3], true);
+    lc.setChar(0, digit--, stringValue[groupLength - 1], false);
   }
 
   /*
@@ -104,45 +152,51 @@ public:
 
     // sensor MQTT publishing
     sensorTimer = millis();
+
+    if (sensorConnected && (sensorTimer - lastMeasurement > measurePeriod))
+    {
+      lastMeasurement = sensorTimer;
+      if (sht.readSample())
+      {
+        SensorTemperature = sht.getTemperature();
+        SensorHumidity = sht.getHumidity();
+
+        //          Serial.println("LED-Display: Output temperature and humidity");
+        writeQuad(2, SensorTemperature);
+        writeQuad(1, SensorHumidity);
+
+      }
+      else
+      {
+        Serial.println("sht3xmqtt: Error in readSample()");
+      }
+    }
     // - Timer to publish new sensor data every reportMqttPeriod seconds
     // - Only send mqtt data if sensor is connected
-    if (sensorConnected && (sensorTimer - lastMeasure > reportMqttPeriod))
+    if (sensorConnected && (sensorTimer - lastMqttReport > reportMqttPeriod))
     {
-      lastMeasure = sensorTimer;
+      lastMqttReport = sensorTimer;
 
       // Check if MQTT Connected, otherwise it will crash the 8266
       if (mqtt != nullptr)
       {
-        //        Serial.println("bme280 - mqtt connected!");
+        // Create string populated with user defined device topic from the UI, and the read temperature, humidity and pressure. Then publish to MQTT server.
+        String d = String(mqttDeviceTopic);
+        d += "/data";
+        //        Serial.print("mqtt topic - data: ");
+        //        Serial.println(d);
 
-        if (sht.readSample())
-        {
-          float board_temperature = sht.getTemperature();
-          float board_humidity = sht.getHumidity();
+        DynamicJsonDocument sensorData(1024);
 
-          // Create string populated with user defined device topic from the UI, and the read temperature, humidity and pressure. Then publish to MQTT server.
-          String d = String(mqttDeviceTopic);
-          d += "/data";
-          //        Serial.print("mqtt topic - data: ");
-          //        Serial.println(d);
+        sensorData[String("sensor_type")] = sensorType.c_str();
+        sensorData[String("temperature")] = SensorTemperature;
+        sensorData[String("humidity")] = SensorHumidity;
 
-          DynamicJsonDocument sensorData(1024);
-
-          sensorData[String("sensor_type")] = sensorType.c_str();
-          sensorData[String("temperature")] = board_temperature;
-          sensorData[String("humidity")] = board_humidity;
-
-          String output;
-          serializeJson(sensorData, output);
-
-          Serial.print("MQTT connected!  - message payload: ");
-          Serial.println(output);
-          mqtt->publish(d.c_str(), 0, true, output.c_str());
-        }
-        else
-        {
-          Serial.println("sht3xmqtt: Error in readSample()");
-        }
+        String output;
+        serializeJson(sensorData, output);        
+        Serial.print("MQTT connected!  - message payload: ");
+        Serial.println(output);
+        mqtt->publish(d.c_str(), 0, true, output.c_str());
       }
       else
       {
