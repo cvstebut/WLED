@@ -19,6 +19,9 @@
 #ifdef USERMOD_BUZZER
 #include "../usermods/buzzer/usermod_v2_buzzer.h"
 #endif
+#ifdef USERMOD_SENSORSTOMQTT
+#include "usermod_v2_SensorsToMqtt.h"
+#endif
 
 #ifdef USERMOD_BME280MQTT
 #include "../usermods/bme280_mqtt/usermod_bme280mqtt.h"
@@ -31,7 +34,6 @@
 #ifdef USERMOD_SHT3XMQTT
 #include "../usermods/sht3x_mqtt/usermod_sht3xmqtt.h"
 #endif
-
 
 // BME280 v2 usermod. Define "USERMOD_BME280" in my_config.h
 #ifdef USERMOD_BME280
@@ -46,30 +48,33 @@ void registerUsermods()
    * \/ \/ \/
    */
   //usermods.add(new MyExampleUsermod());
-  
-  #ifdef USERMOD_DALLASTEMPERATURE
+
+#ifdef USERMOD_DALLASTEMPERATURE
   usermods.add(new UsermodTemperature());
-  #endif
-  
+#endif
+
   //usermods.add(new UsermodRenameMe());
-  
-  #ifdef USERMOD_BUZZER
+
+#ifdef USERMOD_BUZZER
   usermods.add(new BuzzerUsermod());
-  #endif
-  
-  #ifdef USERMOD_BME280MQTT  
+#endif
+
+#ifdef USERMOD_BME280MQTT
   usermods.add(new Bme280MqttUsermod());
-  #endif
-  
-  #ifdef USERMOD_MPR121MQTT  
+#endif
+
+#ifdef USERMOD_MPR121MQTT
   usermods.add(new Mpr121MqttUsermod());
-  #endif
-  
-  #ifdef USERMOD_SHT3XMQTT  
+#endif
+
+#ifdef USERMOD_SHT3XMQTT
   usermods.add(new Sht3xMqttUsermod());
-  #endif
-  
-  #ifdef USERMOD_BME280
+#endif
+
+#ifdef USERMOD_BME280
   usermods.add(new UsermodBME280());
-  #endif
+#endif
+#ifdef USERMOD_SENSORSTOMQTT
+  usermods.add(new UserMod_SensorsToMQTT());
+#endif
 }
