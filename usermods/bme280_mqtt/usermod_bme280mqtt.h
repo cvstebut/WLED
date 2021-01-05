@@ -2,10 +2,72 @@
 #include "wled.h"
 #include <Wire.h>
 #include <BME280I2C.h> //BME280 sensor
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <array>
 
 #define Celsius // Show temperature mesaurement in Celcius otherwise is in Fahrenheit
-BME280I2C bme;  // Default : forced mode, standby time = 1000 ms
-                // Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
+
+/* Recommended Modes -
+   Based on Bosch BME280I2C environmental sensor data sheet.
+Weather Monitoring :
+   forced mode, 1 sample/minute
+   pressure ×1, temperature ×1, humidity ×1, filter off
+   Current Consumption =  0.16 μA
+   RMS Noise = 3.3 Pa/30 cm, 0.07 %RH
+   Data Output Rate 1/60 Hz
+Humidity Sensing :
+   forced mode, 1 sample/second
+   pressure ×0, temperature ×1, humidity ×1, filter off
+   Current Consumption = 2.9 μA
+   RMS Noise = 0.07 %RH
+   Data Output Rate =  1 Hz
+Indoor Navigation :
+   normal mode, standby time = 0.5ms
+   pressure ×16, temperature ×2, humidity ×1, filter = x16
+   Current Consumption = 633 μA
+   RMS Noise = 0.2 Pa/1.7 cm
+   Data Output Rate = 25Hz
+   Filter Bandwidth = 0.53 Hz
+   Response Time (75%) = 0.9 s
+Gaming :
+   normal mode, standby time = 0.5ms
+   pressure ×4, temperature ×1, humidity ×0, filter = x16
+   Current Consumption = 581 μA
+   RMS Noise = 0.3 Pa/2.5 cm
+   Data Output Rate = 83 Hz
+   Filter Bandwidth = 1.75 Hz
+   Response Time (75%) = 0.3 s
+*/
+
+// Default : forced mode aka Weather Mode, standby time = 1000 ms
+// Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
+BME280I2C::Settings bmeSettings0x76(
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::Mode_Forced,
+    BME280::StandbyTime_1000ms,
+    BME280::Filter_Off,
+    BME280::SpiEnable_False,
+    BME280I2C::I2CAddr_0x76 // I2C address. (Either 0x76 or 0x77 - "normal": 0x76, Adafruit: 0x77)
+);
+// Default : forced mode aka Weather Mode, standby time = 1000 ms
+// Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
+BME280I2C::Settings bmeSettings0x77(
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::Mode_Forced,
+    BME280::StandbyTime_1000ms,
+    BME280::Filter_Off,
+    BME280::SpiEnable_False,
+    BME280I2C::I2CAddr_0x77 // I2C address. (Either 0x76 or 0x77 - "normal": 0x76, Adafruit: 0x77)
+);
+
+BME280I2C bme76(bmeSettings0x76);
+BME280I2C bme77(bmeSettings0x77);
 
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
@@ -43,50 +105,168 @@ private:
   // BME280 sensor timer
   long bmeTimer = millis();
   long lastMeasure = 0;
-  long bmeMqttPeriod = 60000; // publish measurement every bmeMqttPeriod milli seconds
-  String sensorType;
+  long bmeMqttPeriod = 10000; // publish measurement every bmeMqttPeriod milli seconds
+
+  static const int sensorCount = 2;
+
+  class Sensor
+  {
+  public:
+    Sensor()
+    {
+      sensorType = "undef";
+      sensorId = "undef";
+      sensor = bme76;
+      detected = false;
+      temperature = 0.0F;
+      humidity = 0.0F;
+      pressure = 0.0F;
+    };
+
+    Sensor(String sT, String sId, BME280I2C *bme, bool present)
+    {
+      sensorType = sT;
+      sensorId = sId;
+      sensor = *bme;
+      detected = present;
+    };
+
+    String sensorType;
+    String sensorId;
+    BME280I2C sensor;
+    bool detected = false;
+    float pressure;
+    float temperature;
+    float humidity;
+
+    void updateSensorData()
+    {
+      float temp(NAN), hum(NAN), pres(NAN);
+#ifdef Celsius
+      BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
+#else
+      BME280::TempUnit tempUnit(BME280::TempUnit_Fahrenheit);
+#endif
+      BME280::PresUnit presUnit(BME280::PresUnit_Pa);
+      sensor.read(pres, temp, hum, tempUnit, presUnit);
+      temperature = temp;
+      humidity = hum;
+      pressure = pres;
+    }
+
+    DynamicJsonDocument getJson()
+    {
+      DynamicJsonDocument jsonData(1024);
+
+      jsonData[String("sensor_id")] = sensorId.c_str();
+      jsonData[String("sensor_type")] = sensorType.c_str();
+      jsonData[String("temperature")] = temperature;
+      jsonData[String("pressure")] = pressure;
+      if (sensorType == "bme280")
+      {
+        jsonData[String("humidity")] = humidity;
+      }
+
+      return jsonData;
+    };
+
+    void addInfoData(JsonObject *userData)
+    {
+      std::ostringstream s;
+      s << sensorType.c_str() << "-" << sensorId.c_str();
+      std::string arrayNamePrefix = s.str();
+
+      std::string arrayName;
+
+      if (detected)
+      {
+        arrayName = arrayNamePrefix + "-temperature";
+        JsonArray bmeTemp = (*userData).createNestedArray(arrayName);
+        bmeTemp.add(temperature); // value
+        bmeTemp.add(" °C");
+
+        arrayName = arrayNamePrefix + "-pressure";
+        JsonArray bmePressure = (*userData).createNestedArray(arrayName);
+        bmePressure.add(pressure);
+        bmePressure.add(" Pa");
+
+        if (sensorType == "bme280")
+        {
+          arrayName = arrayNamePrefix + "-humidity";
+          JsonArray bmeHum = (*userData).createNestedArray(arrayName);
+          bmeHum.add(humidity);
+          bmeHum.add(" %RH");
+        }
+      }
+      else
+      {
+        arrayName = arrayNamePrefix + "-sensor";
+        JsonArray bmeTemp = (*userData).createNestedArray(arrayName);
+          bmeTemp.add(0.0F); // value
+          bmeTemp.add(" - not detected!");
+      }
+    }
+  };
+
 public:
-  bool bmeConnected = false;
+  std::array<Sensor, 2> sensors;
   //Functions called by WLED
-  float SensorPressure;
-  float SensorTemperature;
-  float SensorHumidity;
   /*
      * setup() is called once at boot. WiFi is not yet connected at this point.
      * You can use it to initialize variables, sensors or similar.
      */
   void setup()
   {
-    Serial.println("Hello from usermod bme280mqtt!");
+    Serial.println("bme280Usermod - Setup");
+
+    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false);
+    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, false);
 
     Wire.begin(SDA_PIN, SCL_PIN);
 
-    if (!bme.begin())
+    for (unsigned int i = 0; i < sensors.size(); i++)
     {
-      Serial.println("Could not find BME280I2C sensor!");
-      bmeConnected = false;
-    }
-    else
-    {
-      switch (bme.chipModel())
+      if (sensors[i].sensor.begin())
       {
-      case BME280::ChipModel_BME280:
-        sensorType = "bme280";
-        bmeConnected = true;
-        Serial.println("Found BME280 sensor! Success.");
-        break;
-      case BME280::ChipModel_BMP280:
-        sensorType = "bmp280";
-        bmeConnected = true;
-        Serial.println("Found BMP280 sensor! No Humidity available.");
-        break;
-      default:
-        sensorType = "unknown";
-        bmeConnected = false;
-        Serial.println("Found UNKNOWN sensor! Error!");
+        Sensor *cs = &(sensors[i]);
+
+        switch (cs->sensor.chipModel())
+        {
+        case BME280::ChipModel_BME280:
+          cs->sensorType = "bme280";
+          cs->detected = true;
+          break;
+        case BME280::ChipModel_BMP280:
+          cs->sensorType = "bmp280";
+          cs->detected = true;
+          break;
+        default:
+          cs->sensorType = "unknown";
+          cs->detected = false;
+        }
       }
-    }
-  }
+    };
+
+    for (unsigned int i = 0; i < sensors.size(); i++)
+    {
+      Sensor *cs = &sensors[i];
+
+      Serial.print("bme280Usermod - bme280/bmp280 sensor detection: ");
+      //      Serial.print(cs->sensorType.c_str());
+      Serial.print(" - I2C address ");
+      Serial.print(cs->sensorId.c_str());
+
+      if (cs->detected)
+      {
+        Serial.print(" - Detected sensor type: ");
+        Serial.println(cs->sensorType.c_str());
+      }
+      else
+      {
+        Serial.println(" - No sensor detected");
+      }
+    };
+  };
 
   /*
      * connected() is called every time the WiFi is (re)connected
@@ -97,20 +277,6 @@ public:
     //Serial.println("Connected to WiFi!");
   }
 
-  void UpdateBME280Data()
-  {
-    float temp(NAN), hum(NAN), pres(NAN);
-#ifdef Celsius
-    BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
-#else
-    BME280::TempUnit tempUnit(BME280::TempUnit_Fahrenheit);
-#endif
-    BME280::PresUnit presUnit(BME280::PresUnit_Pa);
-    bme.read(pres, temp, hum, tempUnit, presUnit);
-    SensorTemperature = temp;
-    SensorHumidity = hum;
-    SensorPressure = pres;
-  }
   /*
      * loop() is called continuously. Here you can check for events, read sensors, etc.
      * 
@@ -133,42 +299,42 @@ public:
     bmeTimer = millis();
     // - Timer to publish new sensor data every bmeMqttPeriod seconds
     // - Only send mqtt data if sensor is connected
-    if (bmeConnected && (bmeTimer - lastMeasure > bmeMqttPeriod))
+    if (bmeTimer - lastMeasure > bmeMqttPeriod)
     {
       lastMeasure = bmeTimer;
-
-      // Check if MQTT Connected, otherwise it will crash the 8266
-      if (mqtt != nullptr)
+      for (unsigned int i = 0; i < sensors.size(); i++)
       {
-//        Serial.println("bme280 - mqtt connected!");
-        UpdateBME280Data();
-        float board_temperature = SensorTemperature;
-        float board_pressure = SensorPressure;
-        float board_humidity = SensorHumidity;
+        Sensor *cs = &sensors[i];
 
-        // Create string populated with user defined device topic from the UI, and the read temperature, humidity and pressure. Then publish to MQTT server.
-        String d = String(mqttDeviceTopic);
-        d += "/data";
-        //        Serial.print("mqtt topic - data: ");
-        //        Serial.println(d);
+        std::ostringstream s;
+        s << "bme280Usermod - current sensor data - index: " << i << ", sensorId: " << cs->sensorId.c_str() << ", detected: " << cs->detected << std::endl;
+        //        Serial.println(s.str().c_str());
 
-        DynamicJsonDocument bmeData(1024);
+        if (cs->detected)
+        {
+          cs->updateSensorData();
 
-        bmeData[String("sensor_type")] = sensorType.c_str();
-        bmeData[String("temperature")] = board_temperature;
-        bmeData[String("pressure")] = board_pressure;
-        bmeData[String("humidity")] = board_humidity;
+          // Check if MQTT Connected, otherwise it will crash the 8266
+          if (mqtt != nullptr)
+          {
+            DynamicJsonDocument jsonData = cs->getJson();
 
-        String output;
-        serializeJson(bmeData, output);
+            // Create string populated with user defined device topic from the UI, and the read temperature, humidity and pressure. Then publish to MQTT server.
+            String d = String(mqttDeviceTopic);
+            d += "/data";
 
-        Serial.print("MQTT connected!  - message payload: ");
-        Serial.println(output);
-        mqtt->publish(d.c_str(), 0, true, output.c_str());
-      }
-      else
-      {
-        Serial.println("bme280 - mqtt not connected!");
+            String output;
+            serializeJson(jsonData, output);
+
+            Serial.print("bme280Usermod - mqtt connected - message: ");
+            Serial.println(output);
+            mqtt->publish(d.c_str(), 0, true, output.c_str());
+          }
+          else
+          {
+            Serial.println("bme280Usermod - mqtt not connected!");
+          }
+        }
       }
     }
   }
@@ -180,21 +346,18 @@ public:
 
   void addToJsonInfo(JsonObject &root)
   {
-
-    int reading = 42;
     //this code adds "u":{"Light":[20," lux"]} to the info object
     JsonObject user = root["u"];
     if (user.isNull())
+    {
       user = root.createNestedObject("u");
+    }
 
-    JsonArray bmeArr = user.createNestedArray("BME-Temperature");   //name
-    bmeArr.add(SensorTemperature);                                  //value
-    bmeArr.add("°C");                                               //unit
-    JsonArray bmeHum = user.createNestedArray("BME-Humidity");      //name
-    bmeHum.add(SensorHumidity);                                     //value
-    bmeHum.add("%RH");                                              //unit
-    JsonArray bmePressure = user.createNestedArray("BME-Pressure"); //name
-    bmePressure.add(SensorPressure);                                //value
+    for (unsigned int i = 0; i < sensors.size(); i++)
+    {
+      Sensor *cs = &sensors[i];
+      (*cs).addInfoData(&user);
+    }
   }
 
   /*
