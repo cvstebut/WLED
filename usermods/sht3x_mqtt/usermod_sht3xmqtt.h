@@ -9,11 +9,10 @@
 #include <sstream>
 
 SHTSensor sht;
-LedControl_HW_SPI lc = LedControl_HW_SPI();
-
+LedControl_HW_SPI lcSht = LedControl_HW_SPI();
 #ifdef USERMOD_BME280MQTT
 #else
-
+LedControl_HW_SPI lc = LedControl_HW_SPI();
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
@@ -67,17 +66,6 @@ public:
   void setup()
   {
     Serial.println("Hello from usermod sht3xmqtt!");
-    lc.begin(5);
-    /*
-    The MAX72XX is in power-saving mode on startup,
-    we have to do a wakeup call
-    */
-    lc.shutdown(0, false);
-    /* Set the brightness to a medium values */
-    lc.setIntensity(0, 2);
-    /* and clear the display */
-    lc.clearDisplay(0);
-
     Wire.begin(SDA_PIN, SCL_PIN);
 
     if (!sht.init())
@@ -90,6 +78,16 @@ public:
       Serial.println("SHT3x sensor detected");
       sensorConnected = true;
       sensorType = "sht35";
+      lcSht.begin(5);
+      /*
+    The MAX72XX is in power-saving mode on startup,
+    we have to do a wakeup call
+    */
+      lcSht.shutdown(0, false);
+      /* Set the brightness to a medium values */
+      lcSht.setIntensity(0, 2);
+      /* and clear the display */
+      lcSht.clearDisplay(0);
     }
   }
 
@@ -117,10 +115,10 @@ public:
     }
     //    Serial.println(stringValue.c_str());
 
-    lc.setChar(0, digit--, stringValue[groupLength - 5], false);
-    lc.setChar(0, digit--, stringValue[groupLength - 4], false);
-    lc.setChar(0, digit--, stringValue[groupLength - 3], true);
-    lc.setChar(0, digit--, stringValue[groupLength - 1], false);
+    lcSht.setChar(0, digit--, stringValue[groupLength - 5], false);
+    lcSht.setChar(0, digit--, stringValue[groupLength - 4], false);
+    lcSht.setChar(0, digit--, stringValue[groupLength - 3], true);
+    lcSht.setChar(0, digit--, stringValue[groupLength - 1], false);
   }
 
   /*
@@ -164,7 +162,6 @@ public:
         //          Serial.println("LED-Display: Output temperature and humidity");
         writeQuad(2, SensorTemperature);
         writeQuad(1, SensorHumidity);
-
       }
       else
       {
@@ -193,7 +190,7 @@ public:
         sensorData[String("humidity")] = SensorHumidity;
 
         String output;
-        serializeJson(sensorData, output);        
+        serializeJson(sensorData, output);
         Serial.print("MQTT connected!  - message payload: ");
         Serial.println(output);
         mqtt->publish(d.c_str(), 0, true, output.c_str());

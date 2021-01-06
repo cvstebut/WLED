@@ -2,6 +2,8 @@
 #include "wled.h"
 #include <Wire.h>
 #include <BME280I2C.h> //BME280 sensor
+#include "LedControl.h"
+#include "LedControl_HW_SPI.h"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -69,6 +71,8 @@ BME280I2C::Settings bmeSettings0x77(
 BME280I2C bme76(bmeSettings0x76);
 BME280I2C bme77(bmeSettings0x77);
 
+
+
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
@@ -77,6 +81,12 @@ uint8_t SCL_PIN = 5;
 uint8_t SDA_PIN = 4;
 // uint8_t RST_PIN = 16; // Uncoment for Heltec WiFi-Kit-8
 #endif
+
+
+int csPinDisplay0 = 5;
+int csPinDisplay1 = 27;
+LedControl_HW_SPI lcBme0 = LedControl_HW_SPI();
+LedControl_HW_SPI lcBme1 = LedControl_HW_SPI();
 
 /*
  * Usermods allow you to add own functionality to WLED more easily
@@ -103,9 +113,11 @@ private:
   //Private class members. You can declare variables and functions only accessible to your usermod here
   unsigned long lastTime = 0;
   // BME280 sensor timer
-  long bmeTimer = millis();
-  long lastMeasure = 0;
-  long bmeMqttPeriod = 10000; // publish measurement every bmeMqttPeriod milli seconds
+  long sensorTimer = millis();
+  long lastMqttReport = 0;
+  long lastMeasurement = 0;
+  long reportMqttPeriod = 10000; // publish measurement every bmeMqttPeriod milli seconds
+  long measurePeriod = 1600;     // get measurement every measurePeriod milli seconds
 
   static const int sensorCount = 2;
 
@@ -118,26 +130,93 @@ private:
       sensorId = "undef";
       sensor = bme76;
       detected = false;
+      displayOnSevenSegment = false;
       temperature = 0.0F;
       humidity = 0.0F;
       pressure = 0.0F;
     };
 
-    Sensor(String sT, String sId, BME280I2C *bme, bool present)
+    Sensor(String sT, String sId, BME280I2C *bme, bool present, bool display, int displayId)
     {
       sensorType = sT;
       sensorId = sId;
       sensor = *bme;
       detected = present;
+      displayOnSevenSegment = display;
     };
 
     String sensorType;
     String sensorId;
     BME280I2C sensor;
     bool detected = false;
+    bool displayOnSevenSegment = false;
     float pressure;
     float temperature;
     float humidity;
+
+    void writeQuad(LedControl_HW_SPI *lc, int group, float value)
+    {
+      // convert value to 4 char string with one decimal
+      int digit = group * 4 - 1;
+      int groupLength = 5;
+
+      // round to 1 decimal place
+      value = round(value * 10.0) / 10.0;
+
+      std::ostringstream strStream;
+      std::string stringValue = "-----";
+      // handle overflow by setting value to "-----"
+      if (value >= 1000.0)
+      {
+        stringValue = "-----";
+      }
+      else
+      {
+        strStream << std::setw(groupLength) << std::setfill(' ') << std::fixed << std::setprecision(1) << value;
+        stringValue = strStream.str();
+        strStream.str("");
+      }
+      //    Serial.println(stringValue.c_str());
+
+      (*lc).setChar(0, digit--, stringValue[groupLength - 5], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 4], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 3], true);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 1], false);
+    }
+
+    void writeOct(LedControl_HW_SPI *lc, float value)
+    {
+      // convert value to 8 char string with one decimal
+      int digit = 7;
+      int groupLength = 9;
+
+      // round to 1 decimal place
+      value = round(value * 10.0) / 10.0;
+
+      std::ostringstream strStream;
+      std::string stringValue = "---------";
+      // handle overflow by setting value to "-----"
+      if (value >= 10000000.0)
+      {
+        stringValue = "---------";
+      }
+      else
+      {
+        strStream << std::setw(groupLength) << std::setfill(' ') << std::fixed << std::setprecision(1) << value;
+        stringValue = strStream.str();
+        strStream.str("");
+      }
+      //    Serial.println(stringValue.c_str());
+
+      (*lc).setChar(0, digit--, stringValue[groupLength - 9], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 8], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 7], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 6], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 5], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 4], false);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 3], true);
+      (*lc).setChar(0, digit--, stringValue[groupLength - 1], false);
+    }
 
     void updateSensorData()
     {
@@ -202,14 +281,26 @@ private:
       {
         arrayName = arrayNamePrefix + "-sensor";
         JsonArray bmeTemp = (*userData).createNestedArray(arrayName);
-          bmeTemp.add(0.0F); // value
-          bmeTemp.add(" - not detected!");
+        bmeTemp.add(0.0F); // value
+        bmeTemp.add(" - not detected!");
       }
+    }
+
+    void displayData()
+    {
+      //          Serial.println("LED-Display: Output temperature and humidity");
+      writeQuad(&lcBme0, 2, temperature);
+      writeQuad(&lcBme0, 1, humidity);
+      writeOct(&lcBme1, pressure);
     }
   };
 
 public:
   std::array<Sensor, 2> sensors;
+  bool sevenSegmentConnected = true;
+  int sevenSegmentSensor = 0; // sensor array id [0|1]) that should be displayed
+
+  bool sensorConnected = false;
   //Functions called by WLED
   /*
      * setup() is called once at boot. WiFi is not yet connected at this point.
@@ -219,8 +310,8 @@ public:
   {
     Serial.println("bme280Usermod - Setup");
 
-    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false);
-    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, false);
+    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false, true, 0);
+    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, false, false, 0);
 
     Wire.begin(SDA_PIN, SCL_PIN);
 
@@ -266,6 +357,23 @@ public:
         Serial.println(" - No sensor detected");
       }
     };
+
+
+    lcBme0.begin(csPinDisplay0);
+    /*
+    The MAX72XX is in power-saving mode on startup,
+    we have to do a wakeup call
+    */
+    lcBme0.shutdown(0, false);
+    /* Set the brightness to a medium values */
+    lcBme0.setIntensity(0, 0);
+    /* and clear the display */
+    lcBme0.clearDisplay(0);
+
+    lcBme1.begin(csPinDisplay1);
+    lcBme1.shutdown(0, false);
+    lcBme1.setIntensity(0, 0);
+    lcBme1.clearDisplay(0);
   };
 
   /*
@@ -295,13 +403,31 @@ public:
       lastTime = millis();
     }
 
-    // BME280 sensor MQTT publishing
-    bmeTimer = millis();
+    // BME280 sensor handling
+    sensorTimer = millis();
+
+    // "higher-frequency" measurements for display on seven segment display
+    if (sevenSegmentConnected && (sensorTimer - lastMeasurement > measurePeriod))
+    {
+      lastMeasurement = sensorTimer;
+      for (unsigned int i = 0; i < sensors.size(); i++)
+      {
+        Sensor *cs = &sensors[i];
+        if ((*cs).displayOnSevenSegment)
+        {
+          (*cs).updateSensorData();
+          (*cs).displayData();
+        }
+      }
+    }
+
+    // "lower-frequency" measurements for reporting via mqtt. Just display last high-frequency measurement, if
+    //  seven segment is connected - otherwise: execute needed measurement
     // - Timer to publish new sensor data every bmeMqttPeriod seconds
     // - Only send mqtt data if sensor is connected
-    if (bmeTimer - lastMeasure > bmeMqttPeriod)
+    if (sensorTimer - lastMqttReport > reportMqttPeriod)
     {
-      lastMeasure = bmeTimer;
+      lastMqttReport = sensorTimer;
       for (unsigned int i = 0; i < sensors.size(); i++)
       {
         Sensor *cs = &sensors[i];
@@ -312,7 +438,12 @@ public:
 
         if (cs->detected)
         {
-          cs->updateSensorData();
+          // no need to execute measurement in case of display on seven segment. Just use the last measurement done in the "high-frequency" 
+          // display loop  
+          if (!(*cs).displayOnSevenSegment)
+          {
+            cs->updateSensorData();
+          }
 
           // Check if MQTT Connected, otherwise it will crash the 8266
           if (mqtt != nullptr)
