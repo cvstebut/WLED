@@ -71,8 +71,6 @@ BME280I2C::Settings bmeSettings0x77(
 BME280I2C bme76(bmeSettings0x76);
 BME280I2C bme77(bmeSettings0x77);
 
-
-
 #ifdef ARDUINO_ARCH_ESP32 //ESP32 boards
 uint8_t SCL_PIN = 22;
 uint8_t SDA_PIN = 21;
@@ -82,9 +80,8 @@ uint8_t SDA_PIN = 4;
 // uint8_t RST_PIN = 16; // Uncoment for Heltec WiFi-Kit-8
 #endif
 
-
-int csPinDisplay0 = 5;
-int csPinDisplay1 = 27;
+int csPinDisplay0 = 5;   
+int csPinDisplay1 = 17;  // tested PINs: 17, 27  - should be "true GPIO" Pins
 LedControl_HW_SPI lcBme0 = LedControl_HW_SPI();
 LedControl_HW_SPI lcBme1 = LedControl_HW_SPI();
 
@@ -116,8 +113,8 @@ private:
   long sensorTimer = millis();
   long lastMqttReport = 0;
   long lastMeasurement = 0;
-  long reportMqttPeriod = 10000; // publish measurement every bmeMqttPeriod milli seconds
-  long measurePeriod = 1600;     // get measurement every measurePeriod milli seconds
+  long reportMqttPeriod = 60000; // publish measurement every bmeMqttPeriod milli seconds
+  long measurePeriod = 60000;     // get measurement every measurePeriod milli seconds
 
   static const int sensorCount = 2;
 
@@ -310,8 +307,8 @@ public:
   {
     Serial.println("bme280Usermod - Setup");
 
-    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false, true, 0);
-    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, false, false, 0);
+    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false, false, 0);
+    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, true, true, 1);
 
     Wire.begin(SDA_PIN, SCL_PIN);
 
@@ -357,7 +354,6 @@ public:
         Serial.println(" - No sensor detected");
       }
     };
-
 
     lcBme0.begin(csPinDisplay0);
     /*
@@ -438,8 +434,8 @@ public:
 
         if (cs->detected)
         {
-          // no need to execute measurement in case of display on seven segment. Just use the last measurement done in the "high-frequency" 
-          // display loop  
+          // no need to execute measurement in case of display on seven segment. Just use the last measurement done in the "high-frequency"
+          // display loop
           if (!(*cs).displayOnSevenSegment)
           {
             cs->updateSensorData();
@@ -497,7 +493,28 @@ public:
      */
   void addToJsonState(JsonObject &root)
   {
-    //root["user0"] = userVar0;
+    const std::string usermodSection = "bme280mqtt";
+    JsonObject user = root[usermodSection];
+    if (user.isNull())
+      user = root.createNestedObject(usermodSection);
+
+    for (unsigned int i = 0; i < sensors.size(); i++)
+    {
+      Sensor *cs = &sensors[i];
+
+      if ((*cs).detected)
+      {
+        std::ostringstream s;
+        s << (*cs).sensorType.c_str() << "-" << (*cs).sensorId.c_str();
+        std::string sensorSection = s.str();
+
+        JsonObject sensorData = user[sensorSection];
+        if (sensorData.isNull())
+          sensorData = user.createNestedObject(sensorSection);
+
+        sensorData.set((*cs).getJson().as<JsonObject>());
+      }
+    }
   }
 
   /*

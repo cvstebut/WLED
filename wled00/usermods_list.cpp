@@ -35,6 +35,10 @@
 #include "../usermods/sht3x_mqtt/usermod_sht3xmqtt.h"
 #endif
 
+#ifdef USERMOD_REPORTSTATEDATAMQTT
+#include "../usermods/report_state_data_via_mqtt/usermod_report_state_data_via_mqtt.h"
+#endif
+
 // BME280 v2 usermod. Define "USERMOD_BME280" in my_config.h
 #ifdef USERMOD_BME280
 #include "../usermods/BME280_v2/usermod_bme280.h"
@@ -61,6 +65,10 @@ void registerUsermods()
 
 #ifdef USERMOD_BME280MQTT
   usermods.add(new Bme280MqttUsermod());
+#endif
+
+#ifdef USERMOD_REPORTSTATEDATAMQTT
+  usermods.add(new ReportStateDataMqttUsermod());
 #endif
 
 #ifdef USERMOD_MPR121MQTT
