@@ -110,6 +110,7 @@ void WLED::loop()
   handleIR();        // 2nd call to function needed for ESP32 to return valid results -- should be good for ESP8266, too
   handleConnection();
   handleSerial();
+  handleConfigSerial();
   handleNotifications();
   handleTransitions();
 #ifdef WLED_ENABLE_DMX

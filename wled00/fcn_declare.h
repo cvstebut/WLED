@@ -246,6 +246,9 @@ void clearEEPROM();
 //wled_serial.cpp
 void handleSerial();
 
+//wled_config_serial.cpp
+void handleConfigSerial();
+
 //wled_server.cpp
 bool isIp(String str);
 bool captivePortal(AsyncWebServerRequest *request);
