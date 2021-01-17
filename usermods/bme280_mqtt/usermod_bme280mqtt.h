@@ -80,8 +80,8 @@ uint8_t SDA_PIN = 4;
 // uint8_t RST_PIN = 16; // Uncoment for Heltec WiFi-Kit-8
 #endif
 
-int csPinDisplay0 = 5;   
-int csPinDisplay1 = 17;  // tested PINs: 17, 27  - should be "true GPIO" Pins
+int csPinDisplay0 = 5;
+int csPinDisplay1 = 17; // tested PINs: 17, 27  - should be "true GPIO" Pins
 LedControl_HW_SPI lcBme0 = LedControl_HW_SPI();
 LedControl_HW_SPI lcBme1 = LedControl_HW_SPI();
 
@@ -114,7 +114,7 @@ private:
   long lastMqttReport = 0;
   long lastMeasurement = 0;
   long reportMqttPeriod = 60000; // publish measurement every bmeMqttPeriod milli seconds
-  long measurePeriod = 60000;     // get measurement every measurePeriod milli seconds
+  long measurePeriod = 60000;    // get measurement every measurePeriod milli seconds
 
   static const int sensorCount = 2;
 
@@ -126,19 +126,17 @@ private:
       sensorType = "undef";
       sensorId = "undef";
       sensor = bme76;
-      detected = false;
       displayOnSevenSegment = false;
       temperature = 0.0F;
       humidity = 0.0F;
       pressure = 0.0F;
     };
 
-    Sensor(String sT, String sId, BME280I2C *bme, bool present, bool display, int displayId)
+    Sensor(String sT, String sId, BME280I2C *bme, bool display, int displayId)
     {
       sensorType = sT;
       sensorId = sId;
       sensor = *bme;
-      detected = present;
       displayOnSevenSegment = display;
     };
 
@@ -307,8 +305,8 @@ public:
   {
     Serial.println("bme280Usermod - Setup");
 
-    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, false, false, 0);
-    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, true, true, 1);
+    sensors[0] = Sensor(String("bmX280"), String("0x76"), &bme76, true, 0);
+    sensors[1] = Sensor(String("bmX280"), String("0x77"), &bme77, true, 1);
 
     Wire.begin(SDA_PIN, SCL_PIN);
 
@@ -409,10 +407,13 @@ public:
       for (unsigned int i = 0; i < sensors.size(); i++)
       {
         Sensor *cs = &sensors[i];
-        if ((*cs).displayOnSevenSegment)
+        if ((*cs).detected)
         {
           (*cs).updateSensorData();
-          (*cs).displayData();
+          if ((*cs).displayOnSevenSegment)
+          {
+            (*cs).displayData();
+          }
         }
       }
     }
