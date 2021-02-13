@@ -76,7 +76,7 @@ var d=document,laprev=55;function H(){window.open("https://github.com/Aircoookie
  id="form_s" name="Sf" method="post"><div class="helpB"><button type="button" 
 onclick="H()">?</button></div><button type="button" onclick="B()">Back</button>
 <button type="submit">Save</button><hr><h2>LED setup</h2>LED count: <input 
-name="LC" type="number" min="1" max="1500" oninput="UI()" required><br><div 
+name="LC" type="number" min="1" max="3000" oninput="UI()" required><br><div 
 id="ledwarning" style="color:orange;display:none">
 &#9888; You might run into stability or lag issues.<br>
 Use less than 1000 LEDs per ESP for the best experience!<br></div><i>

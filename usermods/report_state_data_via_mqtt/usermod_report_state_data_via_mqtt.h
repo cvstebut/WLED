@@ -96,7 +96,7 @@ public:
           }
           else
           {
-            Serial.println("reportStateDataMqtt - extractSensorData from root - no sensor key bme280-0x76");
+            Serial.println("reportStateDataMqtt - extractSensorData from root - no sensor key bme280-0x76 - nothing reported");
           }
           if (root["bme280mqtt"].containsKey("bme280-0x77"))
           {
@@ -104,7 +104,7 @@ public:
           }
           else
           {
-            Serial.println("reportStateDataMqtt - extractSensorData from root - no sensor key bme280-0x77");
+            Serial.println("reportStateDataMqtt - extractSensorData from root - no sensor key bme280-0x77 - nothing reported");
           }
         }
         else
