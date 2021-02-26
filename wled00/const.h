@@ -29,6 +29,7 @@
 #define USERMOD_ID_IMU            6            //Usermod "usermod_mpu6050_imu.h"
 #define USERMOD_ID_BME280MQTT     7            //Usermod "usermode_bme280mqtt.h"
 #define USERMOD_ID_SHT3XMQTT      8            //Usermod "usermode_sht3xmqtt.h"
+#define USERMOD_ID_MPR121MQTT     9            //Usermod "usermode_sht3xmqtt.h"
 #define USERMOD
 
 //Access point behavior
